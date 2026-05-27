@@ -1,0 +1,12 @@
+# Requirements for A.U.R.A
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+jupyter
+python-dotenv
+openai
+langchain
+fastapi
+uvicorn
