@@ -2,7 +2,7 @@ import os
 import random
 import uuid
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from faker import Faker
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -36,6 +36,10 @@ COBERTURAS: List[str] = ["Vehículos Livianos", "Vehículos Pesados", "Todo Ries
 TIPOS_PROVEEDORES: List[str] = ["Taller Mecánico", "Perito Automotriz", "Centro de Colisión"]
 DOCUMENTOS_TIPOS: List[str] = ["Factura de Reparación", "Informe de Peritaje", "Copia de Cédula"]
 
+# Nuevas constantes para los campos analíticos agregados
+SUCURSALES: List[str] = ["Guayaquil", "Quito", "Cuenca", "Manta"]
+RAMOS: List[str] = ["Vehículos"] # Mantenemos Vehículos ya que las narrativas son automotrices
+
 NARRATIVAS_NORMALES: List[str] = [
     "El asegurado reporta un choque leve estacionado en el supermercado, daños en el parachoques trasero.",
     "Pérdida de control en vía mojada perdiendo pista e impactando contra baranda de seguridad lateral.",
@@ -51,8 +55,6 @@ NARRATIVA_FRAUDE_CLONADA: str = (
 
 # =====================================================================
 # GENERADOR DE EMBEDDINGS SIMULADOS
-# Sin dependencia de numpy — lógica de normalización manual.
-# En producción, reemplazar por embeddings reales (OpenAI, Claude, etc.)
 # =====================================================================
 def simular_vector_embedding() -> List[float]:
     """Genera un vector aleatorio normalizado de 1536 dimensiones."""
@@ -67,22 +69,14 @@ class DataGenerator:
     def __init__(self):
         self.asegurados_ids: List[str] = []
         self.polizas_ids: List[str] = []
-        self.polizas_fechas: Dict[str, datetime] = {}
+        # ACTUALIZADO: Ahora guardamos una tupla (fecha_inicio, fecha_fin) para calcular métricas
+        self.polizas_fechas: Dict[str, Tuple[datetime, datetime]] = {} 
         self.proveedores_ids: List[str] = []
         self.siniestros_ids: List[str] = []
         self.taller_sospechoso_id: str = ""
 
     def borrar_datos_existentes(self) -> None:
-        """
-        Limpia las tablas en orden inverso de claves foráneas.
-        Usa una condición que funciona en TODAS las tablas, sin depender
-        de nombres de columna distintos por tabla.
-        """
         print("Limpiando tablas de Supabase...")
-        # Eliminamos todos los registros usando una fecha muy antigua como ancla.
-        # Cada tabla sí tiene 'fecha_registro' o usamos .gte con su PK.
-        # La forma más universal en Supabase es usar .neq con un valor imposible
-        # sobre la columna correcta de cada tabla.
         tablas_y_pk = {
             "documentos":  "id_documento",
             "siniestros":  "id_siniestro",
@@ -92,8 +86,6 @@ class DataGenerator:
         }
         for tabla, pk in tablas_y_pk.items():
             try:
-                # Borra todos los registros cuyo PK no sea el string vacío
-                # (es decir, todos, porque ningún ID real es "").
                 supabase.table(tabla).delete().neq(pk, "").execute()
                 print(f"  ✓ Tabla '{tabla}' limpiada.")
             except Exception as e:
@@ -124,7 +116,8 @@ class DataGenerator:
             fecha_fin = fecha_inicio + timedelta(days=365)
 
             self.polizas_ids.append(uid)
-            self.polizas_fechas[uid] = fecha_inicio
+            # Guardamos ambas fechas para poder usarlas en la tabla siniestros
+            self.polizas_fechas[uid] = (fecha_inicio, fecha_fin)
 
             batch.append({
                 "id_poliza": uid,
@@ -146,9 +139,6 @@ class DataGenerator:
             self.proveedores_ids.append(uid)
 
             if i == 0:
-                # FIX: El taller sospechoso se crea directamente con lista_restrictiva=True.
-                # Antes se creaba en False y nunca se actualizaba, por lo que
-                # evaluar_proveedor() en fraud_rules.py nunca disparaba los 50 puntos.
                 self.taller_sospechoso_id = uid
                 nombre = "TALLER COLISIÓN DEL SUR CIA. LTDA."
                 es_restrictivo = True
@@ -163,12 +153,12 @@ class DataGenerator:
                 "nombre_comercial": nombre,
                 "ruc_cedula": f"179{random.randint(10000000, 99999999)}001",
                 "tipo_proveedor": tipo,
-                "lista_restrictiva": es_restrictivo  # ← Corrección crítica
+                "lista_restrictiva": es_restrictivo
             })
         supabase.table("proveedores").insert(batch).execute()
 
     def generar_siniestros(self) -> None:
-        print("Generando Siniestros e inyectando patrones de fraude ocultos...")
+        print("Generando Siniestros e inyectando patrones de fraude ocultos y campos extendidos...")
         batch_siniestros: List[Dict[str, Any]] = []
         contador_siniestros = 1
 
@@ -178,9 +168,12 @@ class DataGenerator:
             uid = f"sin-{uuid.uuid4().hex[:8]}"
             self.siniestros_ids.append(uid)
 
-            fecha_poliza = self.polizas_fechas[id_pol]
-            fecha_sin = fecha_poliza + timedelta(days=random.randint(20, 80))
+            # Desempaquetamos inicio y fin
+            fecha_inicio, fecha_fin = self.polizas_fechas[id_pol]
+            fecha_sin = fecha_inicio + timedelta(days=random.randint(20, 80))
             fecha_notif = fecha_sin + timedelta(days=random.randint(1, 3))
+            
+            monto_reclamado = float(random.randint(300, 3500))
 
             batch_siniestros.append({
                 "id_siniestro": uid,
@@ -189,16 +182,27 @@ class DataGenerator:
                 "codigo_siniestro": f"SIN-2026-{contador_siniestros:04d}",
                 "fecha_siniestro": fecha_sin.isoformat(),
                 "fecha_notificacion": fecha_notif.isoformat(),
-                "monto_reclamado": float(random.randint(300, 3500)),
+                "monto_reclamado": monto_reclamado,
                 "descripcion_narrativa": random.choice(NARRATIVAS_NORMALES),
                 "descripcion_embedding": simular_vector_embedding(),
                 "estado_tramite": "En Revisión",
                 "score_riesgo": 0,
-                "semaforo_alerta": "Verde"
+                "semaforo_alerta": "Verde",
+                # NUEVOS CAMPOS AGREGADOS:
+                "ramo": random.choice(RAMOS),
+                "monto_estimado": round(monto_reclamado * random.uniform(0.85, 1.05), 2),
+                "monto_pagado": 0.0, # 0 porque sigue "En Revisión" o en "Reserva"
+                "estado": "Reserva", 
+                "sucursal": random.choice(SUCURSALES),
+                "documentos_completos": random.choice([True, True, True, False]), # Mayormente True
+                "dias_desde_inicio_poliza": (fecha_sin - fecha_inicio).days,
+                "dias_desde_fin_poliza": (fecha_fin - fecha_sin).days,
+                "historial_siniestros_asegurado": random.randint(0, 2),
+                "etiqueta_fraude_simulada": 0 # Caso Normal = 0
             })
             contador_siniestros += 1
 
-        # --- FRAUDE 1: Borde de Vigencia (siniestro a las 3h de emitida la póliza) ---
+        # --- FRAUDE 1: Borde de Vigencia ---
         polizas_fraude_vigencia = self.polizas_ids[
             int(len(self.polizas_ids) * 0.85) : int(len(self.polizas_ids) * 0.90)
         ]
@@ -206,9 +210,11 @@ class DataGenerator:
             uid = f"sin-{uuid.uuid4().hex[:8]}"
             self.siniestros_ids.append(uid)
 
-            fecha_poliza = self.polizas_fechas[id_pol]
-            fecha_sin = fecha_poliza + timedelta(hours=3)   # ← Activa RF-01 (Crítico: +40 pts)
+            fecha_inicio, fecha_fin = self.polizas_fechas[id_pol]
+            fecha_sin = fecha_inicio + timedelta(hours=3)   # ← Activa RF-01
             fecha_notif = fecha_sin + timedelta(days=1)
+            
+            monto_reclamado = float(random.randint(6000, 9500))
 
             batch_siniestros.append({
                 "id_siniestro": uid,
@@ -217,7 +223,7 @@ class DataGenerator:
                 "codigo_siniestro": f"SIN-2026-{contador_siniestros:04d}",
                 "fecha_siniestro": fecha_sin.isoformat(),
                 "fecha_notificacion": fecha_notif.isoformat(),
-                "monto_reclamado": float(random.randint(6000, 9500)),
+                "monto_reclamado": monto_reclamado,
                 "descripcion_narrativa": (
                     "Iba manejando de noche camino a casa y perdí el control "
                     "golpeando la acera, dañando la mesa y el eje del carro."
@@ -225,36 +231,59 @@ class DataGenerator:
                 "descripcion_embedding": simular_vector_embedding(),
                 "estado_tramite": "En Revisión",
                 "score_riesgo": 0,
-                "semaforo_alerta": "Verde"
+                "semaforo_alerta": "Verde",
+                # NUEVOS CAMPOS AGREGADOS:
+                "ramo": random.choice(RAMOS),
+                "monto_estimado": round(monto_reclamado * random.uniform(0.9, 1.0), 2),
+                "monto_pagado": 0.0,
+                "estado": "Reserva",
+                "sucursal": random.choice(SUCURSALES),
+                "documentos_completos": True, # Suelen tener todo "listo" rápido
+                "dias_desde_inicio_poliza": (fecha_sin - fecha_inicio).days,
+                "dias_desde_fin_poliza": (fecha_fin - fecha_sin).days,
+                "historial_siniestros_asegurado": random.randint(1, 4), # Historial sospechoso
+                "etiqueta_fraude_simulada": 1 # Caso Fraude = 1
             })
             contador_siniestros += 1
 
         # --- FRAUDE 2: Red de narrativas clonadas + proveedor crítico + demora ---
-        # Activa RF-03 (+50 pts taller restrictivo), RF-04 (+30 pts demora), y similitud NLP
         polizas_fraude_red = self.polizas_ids[int(len(self.polizas_ids) * 0.90):]
-        embedding_clon = simular_vector_embedding()  # Mismo embedding para toda la red
+        embedding_clon = simular_vector_embedding()
 
         for id_pol in polizas_fraude_red:
             uid = f"sin-{uuid.uuid4().hex[:8]}"
             self.siniestros_ids.append(uid)
 
-            fecha_poliza = self.polizas_fechas[id_pol]
-            fecha_sin = fecha_poliza + timedelta(days=15)
-            fecha_notif = fecha_sin + timedelta(days=12)   # ← Activa RF-04 (+30 pts)
+            fecha_inicio, fecha_fin = self.polizas_fechas[id_pol]
+            fecha_sin = fecha_inicio + timedelta(days=15)
+            fecha_notif = fecha_sin + timedelta(days=12)   # ← Activa RF-04
+            
+            monto_reclamado = float(random.randint(4000, 5000))
 
             batch_siniestros.append({
                 "id_siniestro": uid,
                 "id_poliza": id_pol,
-                "id_proveedor": self.taller_sospechoso_id,  # ← Activa RF-03 (+50 pts)
+                "id_proveedor": self.taller_sospechoso_id,  # ← Activa RF-03
                 "codigo_siniestro": f"SIN-2026-{contador_siniestros:04d}",
                 "fecha_siniestro": fecha_sin.isoformat(),
                 "fecha_notificacion": fecha_notif.isoformat(),
-                "monto_reclamado": float(random.randint(4000, 5000)),
+                "monto_reclamado": monto_reclamado,
                 "descripcion_narrativa": NARRATIVA_FRAUDE_CLONADA,
                 "descripcion_embedding": embedding_clon,
                 "estado_tramite": "En Revisión",
                 "score_riesgo": 0,
-                "semaforo_alerta": "Verde"
+                "semaforo_alerta": "Verde",
+                # NUEVOS CAMPOS AGREGADOS:
+                "ramo": random.choice(RAMOS),
+                "monto_estimado": round(monto_reclamado * random.uniform(0.95, 1.0), 2),
+                "monto_pagado": 0.0,
+                "estado": "Reserva",
+                "sucursal": random.choice(SUCURSALES),
+                "documentos_completos": False, # Demoras a propósito
+                "dias_desde_inicio_poliza": (fecha_sin - fecha_inicio).days,
+                "dias_desde_fin_poliza": (fecha_fin - fecha_sin).days,
+                "historial_siniestros_asegurado": random.randint(0, 1),
+                "etiqueta_fraude_simulada": 1 # Caso Fraude = 1
             })
             contador_siniestros += 1
 
@@ -280,7 +309,6 @@ class DataGenerator:
                     "posible_adulteracion": es_sospechoso
                 })
         supabase.table("documentos").insert(batch).execute()
-
 
 # =====================================================================
 # FLUJO PRINCIPAL

@@ -27,7 +27,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 SCORE_MAX_REGLAS: int = 70
 
 # =====================================================================
-# MOTOR DE REGLAS DE NEGOCIO (RF-01 a RF-07)
+# MOTOR DE REGLAS DE NEGOCIO (RF-01 a RF-07 + Nuevas)
 # =====================================================================
 class ReglasNegocioEngine:
 
@@ -77,6 +77,20 @@ class ReglasNegocioEngine:
 
         return min(score_doc, 40)  # Tope por documentos: 40 pts
 
+    def evaluar_historial_siniestros(self, historial: int) -> int:
+        """RF-Nueva: Penaliza si el asegurado tiene un historial frecuente de siniestros."""
+        if historial >= 3:
+            return 25   # Alta reincidencia
+        elif historial == 2:
+            return 10   # Reincidencia moderada
+        return 0
+
+    def evaluar_documentacion_incompleta(self, completos: bool) -> int:
+        """RF-Nueva: Penaliza (levemente) si el trámite se intenta procesar sin documentos completos."""
+        if not completos:
+            return 15   # Trámite inusual o apresurado
+        return 0
+
 
 # =====================================================================
 # SEMÁFORO — Función centralizada para asignar nivel de alerta
@@ -122,7 +136,6 @@ def procesar_siniestros_nuevos():
         print(f"Analizando {codigo}...")
 
         # --- Regla RF-01: Borde de Vigencia ---
-        # FIX: Guard para evitar TypeError si la join de polizas no devuelve datos.
         poliza = sin.get('polizas')
         if poliza and poliza.get('fecha_inicio_vigencia'):
             pts_vigencia = engine.evaluar_borde_vigencia(
@@ -156,12 +169,23 @@ def procesar_siniestros_nuevos():
             alertas.append(f"  → Alerta Documentos (+{pts_docs} pts)")
         score_acumulado += pts_docs
 
-        # 2. FIX: Aplicar tope del módulo de reglas para dejar espacio al ML y NLP.
-        # Sin este tope, combinaciones como proveedor (50) + vigencia (40) + demora (30)
-        # sumarían 120 pts y no habría margen para los otros módulos.
+        # --- Nueva Regla: Historial de Asegurado ---
+        pts_historial = engine.evaluar_historial_siniestros(sin.get('historial_siniestros_asegurado', 0))
+        if pts_historial > 0:
+            alertas.append(f"  → Alerta Historial ({sin.get('historial_siniestros_asegurado')} previos) (+{pts_historial} pts)")
+        score_acumulado += pts_historial
+
+        # --- Nueva Regla: Documentación Incompleta ---
+        # Usamos True como default por si el campo viene nulo, asumiendo buena fe inicial
+        pts_docs_completos = engine.evaluar_documentacion_incompleta(sin.get('documentos_completos', True))
+        if pts_docs_completos > 0:
+            alertas.append(f"  → Alerta Docs Incompletos (+{pts_docs_completos} pts)")
+        score_acumulado += pts_docs_completos
+
+        # 2. Aplicar tope del módulo de reglas para dejar espacio al ML y NLP.
         score_acumulado = min(score_acumulado, SCORE_MAX_REGLAS)
 
-        # 3. FIX: Semáforo con tres niveles completos (Verde / Amarillo / Rojo).
+        # 3. Semáforo con tres niveles completos (Verde / Amarillo / Rojo).
         semaforo = calcular_semaforo(score_acumulado)
 
         # Imprimir resumen del caso
