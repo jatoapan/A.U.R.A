@@ -1,0 +1,26 @@
+{
+  "model_name": "LogisticRegression",
+  "C": 0.1,
+  "ml_threshold": 0.75,
+  "random_state": 42,
+  "test_size": 0.25,
+  "feature_cols": [
+    "monto_reclamado",
+    "monto_estimado",
+    "ratio_reclamado",
+    "delta_notificacion_dias",
+    "delta_vigencia_dias",
+    "historial_siniestros_asegurado",
+    "doc_count",
+    "doc_inconsistencia",
+    "doc_adulteracion",
+    "doc_ilegible",
+    "doc_faltante",
+    "cobertura",
+    "sucursal",
+    "tipo_proveedor",
+    "documentos_completos",
+    "lista_restrictiva",
+    "proveedor_preferente"
+  ]
+}

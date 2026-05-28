@@ -1,0 +1,2 @@
+"""Explainability helpers (rules + model)."""
+

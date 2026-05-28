@@ -2,10 +2,14 @@
 pandas
 numpy
 scikit-learn
+joblib
 matplotlib
 seaborn
 jupyter
 python-dotenv
+Faker
+sentence-transformers
+supabase
 openai
 langchain
 fastapi
