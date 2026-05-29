@@ -162,6 +162,11 @@ CREATE TABLE siniestros (
     estado_tramite VARCHAR(50) DEFAULT 'EN REVISION',
     score_riesgo INT DEFAULT 0,
     semaforo_alerta VARCHAR(20) DEFAULT 'VERDE',
+    score_reglas INT DEFAULT 0,
+    ml_proba DOUBLE PRECISION DEFAULT 0,
+    ml_alerta INT DEFAULT 0,
+    anom_score_0_1 DOUBLE PRECISION DEFAULT 0,
+    explicacion_riesgo TEXT,
 
     causa_riesgo VARCHAR(100) NOT NULL,
     estado VARCHAR(20),
@@ -185,6 +190,10 @@ CREATE TABLE siniestros (
       AND (dias_entre_ocurrencia_reporte IS NULL OR dias_entre_ocurrencia_reporte >= 0)
     ),
     CONSTRAINT chk_siniestros_score CHECK (score_riesgo BETWEEN 0 AND 100),
+    CONSTRAINT chk_siniestros_score_reglas CHECK (score_reglas BETWEEN 0 AND 70),
+    CONSTRAINT chk_siniestros_ml_proba CHECK (ml_proba >= 0 AND ml_proba <= 1),
+    CONSTRAINT chk_siniestros_ml_alerta CHECK (ml_alerta IN (0, 1)),
+    CONSTRAINT chk_siniestros_anom_score CHECK (anom_score_0_1 >= 0 AND anom_score_0_1 <= 1),
     CONSTRAINT chk_siniestros_historial_nonneg CHECK (historial_siniestros_asegurado >= 0),
     CONSTRAINT chk_siniestros_etiqueta_fraude CHECK (etiqueta_fraude_simulada IN (0, 1)),
     CONSTRAINT chk_siniestros_semaforo CHECK (semaforo_alerta IN ('VERDE', 'AMARILLO', 'ROJO'))

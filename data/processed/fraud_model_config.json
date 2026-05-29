@@ -1,7 +1,7 @@
 {
   "model_name": "LogisticRegression",
   "C": 0.1,
-  "ml_threshold": 0.75,
+  "ml_threshold": 0.7,
   "random_state": 42,
   "test_size": 0.25,
   "feature_cols": [

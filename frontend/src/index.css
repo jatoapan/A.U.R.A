@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-50 text-slate-900;
+}
+
+.badge {
+  @apply inline-block px-3 py-1 rounded-full text-sm font-medium;
+}
+
+.badge-success {
+  @apply bg-green-100 text-green-800;
+}
+
+.badge-warning {
+  @apply bg-yellow-100 text-yellow-800;
+}
+
+.badge-danger {
+  @apply bg-red-100 text-red-800;
+}
+
+.card {
+  @apply bg-white rounded-lg shadow-sm border border-slate-200 p-6;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-colors;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700;
+}
+
+.btn-secondary {
+  @apply bg-slate-200 text-slate-900 hover:bg-slate-300;
+}
+
+.semaforo-verde {
+  @apply bg-green-50 border-l-4 border-green-500;
+}
+
+.semaforo-amarillo {
+  @apply bg-yellow-50 border-l-4 border-yellow-500;
+}
+
+.semaforo-rojo {
+  @apply bg-red-50 border-l-4 border-red-500;
+}
